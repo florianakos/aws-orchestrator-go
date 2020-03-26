@@ -188,7 +188,12 @@ func printWelcome() {
 
 // function to retrieve all instances tagged with Name="FloMeru"
 func listInstancesGlobally() {
-	baseSession, err := session.NewSession(nil)
+	baseSession, err := session.NewSessionWithOptions(session.Options{
+		Profile: "personal-aws",
+		Config: aws.Config{
+			Region: aws.String("us-west-2"),
+		}
+	})
 	checkErr(err)
 	fmt.Printf("\n_____________________________________________________________________________________________________________\n")
 	fmt.Println("\n    IP_address\t\tStatus\t\tRegion\t\tInstanceID\t\tTags\t\t InstanceType")
