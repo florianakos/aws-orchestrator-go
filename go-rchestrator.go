@@ -15,10 +15,10 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 
 	"github.com/florianakos/awssh"
-	"github.com/florianakos/ec2/credentials"
+	"github.com/florianakos/awshelper"
+	//"github.com/florianakos/ec2/credentials"
 	"github.com/manifoldco/promptui"
-
-	ec2helper "github.com/florianakos/ec2/helper"
+	//awshelper "github.com/florianakos/ec2/helper"
 )
 
 var menuItems = []string{
@@ -68,14 +68,14 @@ func createAndTagInst(region string, keyPair string, nameTag string, sgID string
 	defer wg.Done() // Step 3
 	//time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 
-	newInstanceID, err := ec2helper.CreateInstance(region, keyPair, sgID, amiID)
+	newInstanceID, err := awshelper.CreateInstance(region, keyPair, sgID, amiID)
 	//time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	err = ec2helper.TagInstance(region, newInstanceID, nameTag)
+	err = awshelper.TagInstance(region, newInstanceID, nameTag)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -96,7 +96,7 @@ func waitAndSee(text string, waitTime int) {
 }
 
 func selectKeyPair(region string) (string, error) {
-	keyPairs, err := credentials.GetKeyPairs(region)
+	keyPairs, err := awshelper.GetKeyPairs(region)
 	if err != nil {
 		return "", err
 	}
@@ -192,7 +192,7 @@ func listInstancesGlobally() {
 		Profile: "personal-aws",
 		Config: aws.Config{
 			Region: aws.String("us-west-2"),
-		}
+		},
 	})
 	checkErr(err)
 	fmt.Printf("\n_____________________________________________________________________________________________________________\n")
@@ -397,9 +397,9 @@ func main() {
 			nameTag, err := promptUserString()
 			checkErr(err)
 
-			securityGroupID := credentials.GetSecurityGroupID(region)
+			securityGroupID := awshelper.GetSecurityGroupID(region)
 
-			AmazonImageID := credentials.GetAmazonImageID(region)
+			AmazonImageID := awshelper.GetAmazonImageID(region)
 
 			fmt.Printf("\nSetting up %d new instance(s) with params:\n\tregion: %v\n\tTag: Name=\"%v\"\n\tKeyPair: %v\n\tSG-ID: %v\n\tAMI-ID: %v \n\n", count, region, nameTag, keyPair, securityGroupID, AmazonImageID)
 
@@ -465,7 +465,7 @@ func main() {
 			instanceID := strings.Split(temp, " | ")[1]
 
 			//fmt.Println(instanceID)
-			err = ec2helper.TerminateInstanceByID(region, instanceID)
+			err = awshelper.TerminateInstanceByID(region, instanceID)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -491,7 +491,7 @@ func main() {
 
 			instanceID := strings.Split(temp, " | ")[1]
 
-			err = ec2helper.StopInstance(region, instanceID)
+			err = awshelper.StopInstance(region, instanceID)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -518,7 +518,7 @@ func main() {
 
 			instanceID := strings.Split(temp, " | ")[1]
 
-			err = ec2helper.StartInstance(region, instanceID)
+			err = awshelper.StartInstance(region, instanceID)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -551,12 +551,12 @@ func main() {
 
 			instanceID := strings.Split(temp, " | ")[1]
 
-			data := ec2helper.GetCloudWatchMetrics(region, instanceID)
+			data := awshelper.GetCloudWatchMetrics(region, instanceID)
 			if data == nil || len(data[0].Values) == 0 {
 				fmt.Println("\nNo data found in CloudWatch!\n")
 			} else {
-				ec2helper.RenderGraphs(data)
-				ec2helper.PlotGraph(region, instanceID, data)
+				awshelper.RenderGraphs(data)
+				awshelper.PlotGraph(region, instanceID, data)
 			}
 			break
 		} // end-switch
