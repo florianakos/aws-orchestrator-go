@@ -157,7 +157,7 @@ func getInstancesByState(region string, states ...string) []*ec2.Reservation {
 	}
 
 	// Describe EC2 instances matching the state filter
-	res, err := svc.DescribeInstances(&ec2.DescribeInstancesInput{
+	res, _ := svc.DescribeInstances(&ec2.DescribeInstancesInput{
 		Filters: []*ec2.Filter{{
 			Name:   aws.String("instance-state-name"),
 			Values: filter,
