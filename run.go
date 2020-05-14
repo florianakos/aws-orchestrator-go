@@ -13,8 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/florianakos/awshelper"
 	"github.com/florianakos/awssh"
+	"github.com/florianakos/awsutils"
 	"github.com/manifoldco/promptui"
 )
 
@@ -56,13 +56,13 @@ var wg sync.WaitGroup
 func createAndTagInst(region string, keyPair string, nameTag string, sgID string, amiID string) {
 	defer wg.Done() // Step 3
 
-	newInstanceID, err := awshelper.CreateInstance(region, keyPair, sgID, amiID)
+	newInstanceID, err := awsutils.CreateInstance(region, keyPair, sgID, amiID)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	err = awshelper.TagInstance(region, newInstanceID, nameTag)
+	err = awsutils.TagInstance(region, newInstanceID, nameTag)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -81,7 +81,7 @@ func waitAndSee(text string, waitTime int) {
 }
 
 func selectKeyPair(region string) (string, error) {
-	keyPairs, err := awshelper.GetKeyPairs(region)
+	keyPairs, err := awsutils.GetKeyPairs(region)
 	if err != nil {
 		return "", err
 	}
@@ -330,9 +330,9 @@ func main() {
 			nameTag, err := promptUserString()
 			checkErr(err)
 
-			securityGroupID := awshelper.GetSecurityGroupID(region)
+			securityGroupID := awsutils.GetSecurityGroupID(region)
 
-			AmazonImageID := awshelper.GetAmazonImageID(region)
+			AmazonImageID := awsutils.GetAmazonImageID(region)
 
 			fmt.Printf("\nSetting up %d new instance(s) with params:\n\tregion: %v\n\tTag: Name=\"%v\"\n\tKeyPair: %v\n\tSG-ID: %v\n\tAMI-ID: %v \n\n", count, region, nameTag, keyPair, securityGroupID, AmazonImageID)
 
@@ -400,13 +400,13 @@ func main() {
 			}
 			switch selectedAction {
 			case " ▲ start instance":
-				err = awshelper.StartInstance(region, instanceID)
+				err = awsutils.StartInstance(region, instanceID)
 				break
 			case " ▼ stop instance":
-				err = awshelper.StopInstance(region, instanceID)
+				err = awsutils.StopInstance(region, instanceID)
 				break
 			case " ☠ terminate instance":
-				err = awshelper.TerminateInstanceByID(region, instanceID)
+				err = awsutils.TerminateInstanceByID(region, instanceID)
 				break
 			}
 			if err != nil {
@@ -415,7 +415,7 @@ func main() {
 			break
 
 		case "❌   Exit program":
-			fmt.Println("\nIt's sad to see you go... 😢\n")
+			fmt.Println("\nIt's sad to see you go... 😢")
 			os.Exit(0)
 			break
 
@@ -440,12 +440,12 @@ func main() {
 
 			instanceID := strings.Split(temp, " | ")[1]
 
-			data := awshelper.GetCloudWatchMetrics(region, instanceID)
+			data := awsutils.GetCloudWatchMetrics(region, instanceID)
 			if data == nil || len(data[0].Values) == 0 {
-				fmt.Println("\nNo data found in CloudWatch!\n")
+				fmt.Printf("\nNo data found in CloudWatch!\n")
 			} else {
-				awshelper.RenderGraphs(data)
-				awshelper.PlotGraph(region, instanceID, data)
+				awsutils.RenderGraphs(data)
+				awsutils.PlotGraph(region, instanceID, data)
 			}
 			break
 		}
