@@ -11,9 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/florianakos/awssh"
 	"github.com/florianakos/awsutils"
 	"github.com/manifoldco/promptui"
 )
@@ -28,9 +26,9 @@ var menuItems = []string{
 }
 
 var ec2Actions = []string{
-	"▶️ start instance",
-	"⏸ stop instance",
-	"⏹ terminate instance",
+	"▶️  start instance",
+	"⏸  stop instance",
+	"⏹  terminate instance",
 	"< return >",
 }
 
@@ -147,6 +145,27 @@ func promptUserString() (string, error) {
 	return prompt.Run()
 }
 
+func getInstancesByState(region string, states ...string) []*ec2.Reservation {
+	// create session using AWS profile for my personal account
+	svc, err := awsutils.GetEC2ServiceClient(region)
+	checkErr(err)
+
+	// construct filter from passed arguments
+	filter := []*string{}
+	for _, v := range states {
+		filter = append(filter, aws.String(v))
+	}
+
+	// Describe EC2 instances matching the state filter
+	res, err := svc.DescribeInstances(&ec2.DescribeInstancesInput{
+		Filters: []*ec2.Filter{{
+			Name:   aws.String("instance-state-name"),
+			Values: filter,
+		}},
+	})
+	return res.Reservations
+}
+
 func promptForUsername() (string, error) {
 	validate := func(input string) error {
 		if len(input) < 1 {
@@ -163,45 +182,25 @@ func promptForUsername() (string, error) {
 }
 
 func listEC2InstanceByRegion(region string) {
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Profile: "personal-aws",
-		Config:  aws.Config{Region: aws.String(region)},
-	})
-	checkErr(err)
-	svc := ec2.New(sess)
+	// get list of instances in region wiwht given states
+	instances := getInstancesByState(region, "running", "pending", "stopping", "stopped")
 
-	input := &ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{{
-			Name: aws.String("instance-state-name"),
-			Values: []*string{
-				aws.String("running"),
-				aws.String("pending"),
-			},
-		},
-		},
-	}
-
-	res, err := svc.DescribeInstances(input)
-	result := res.Reservations
-
-	if len(result) == 0 {
+	// parse results and print accordingly
+	if len(instances) == 0 {
 		fmt.Printf("\n>>> You have %d instances in %s!\n", 0, region)
 	} else {
-		fmt.Println("____________________________________________________________________________________________________________")
+		fmt.Println("_____________________________________________________________________________________________________________")
 		fmt.Println("\n    IP_address\t\tStatus\t\tRegion\t\tInstanceID\t\tTags\t\t InstanceType")
 
 		counter := 0
 		zone := strings.Split(region, " / ")[0]
-
-		for i := 0; i < len(result); i++ {
-			instance := *result[i].Instances[0]
-
+		for i := 0; i < len(instances); i++ {
+			instance := *instances[i].Instances[0]
 			if *instance.State.Name == "running" {
+				counter++
 				if len(*instance.PublicIpAddress) < 12 {
-					counter++
 					fmt.Printf("✔   %v\t\t%v\t\t%v\t%v\t%v=\"%v\"\t %v\n", *instance.PublicIpAddress, *instance.State.Name, zone, *instance.InstanceId, *instance.Tags[0].Key, *instance.Tags[0].Value, *instance.InstanceType)
 				} else {
-					counter++
 					fmt.Printf("✔   %v\t%v\t\t%v\t%v\t%v=\"%v\"\t %v\n", *instance.PublicIpAddress, *instance.State.Name, zone, *instance.InstanceId, *instance.Tags[0].Key, *instance.Tags[0].Value, *instance.InstanceType)
 				}
 			} else if *instance.State.Name == "shutting-down" || *instance.State.Name == "stopping" {
@@ -210,44 +209,29 @@ func listEC2InstanceByRegion(region string) {
 				fmt.Printf("✗   NO_IP_ADDR\t\t%v\t\t%v\t%v\t%v=\"%v\"\t %v\n", *instance.State.Name, zone, *instance.InstanceId, *instance.Tags[0].Key, *instance.Tags[0].Value, *instance.InstanceType)
 			}
 		}
-		fmt.Println("______________________________________________________________________________________________________________")
-		fmt.Printf("\n>>> You have [ %d ] usable instances in %s!\n\n", counter, region)
+		fmt.Println("_____________________________________________________________________________________________________________")
+		fmt.Printf("\n>>> You have [ %d ] running instances in %s!\n\n", counter, region)
 
 	}
 }
 
-func selectIPorID(region string, which string) string {
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Profile: "personal-aws",
-		Config: aws.Config{
-			Region: aws.String(region),
-		},
-	})
-	checkErr(err)
-	svc := ec2.New(sess)
+func selectEC2InstanceWithStates(region string, kind string, states ...string) string {
+	// get list of instances in region wiwht given states
+	instances := getInstancesByState(region, states...)
 
-	input := &ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{{
-			Name:   aws.String("instance-state-name"),
-			Values: []*string{aws.String("running"), aws.String("stopped"), aws.String("pending")},
-		}},
-	}
-
-	res, err := svc.DescribeInstances(input)
-	result := res.Reservations
+	// parse results obtained from DescribeEC2 operation
 	items := make([]string, 0)
+	if len(instances) != 0 {
+		for i := 0; i < len(instances); i++ {
+			instance := *instances[i].Instances[0]
 
-	if len(result) != 0 {
-		for i := 0; i < len(result); i++ {
-			instance := *result[i].Instances[0]
-
-			if which == "IP" && *instance.State.Name == "running" {
+			if kind == "IP" && *instance.State.Name == "running" {
 				items = append(items, *instance.PublicIpAddress)
-			} else if which == "ID" && *instance.State.Name != "terminated" && *instance.State.Name != "shutting-down" && *instance.State.Name != "stopping" {
+			} else if kind == "ID" && *instance.State.Name != "terminated" && *instance.State.Name != "shutting-down" {
 				if *instance.State.Name == "running" {
-					items = append(items, *instance.PublicIpAddress+" | "+*instance.InstanceId)
+					items = append(items, fmt.Sprintf("%s | %s", *instance.PublicIpAddress, *instance.InstanceId))
 				} else {
-					items = append(items, "* NO-IP-ADDR *"+" | "+*instance.InstanceId)
+					items = append(items, fmt.Sprintf("* NO-IP-ADDR * | %s", *instance.InstanceId))
 				}
 			}
 		}
@@ -296,12 +280,12 @@ func main() {
 
 		case "🌍   EC2 - list instances by region":
 
-			subAction, err := promptUserMultiOption("Please select a region first", regions)
+			region, err := promptUserMultiOption("Please select a region first", regions)
 			checkErr(err)
-			if subAction == "< return >" {
+			if region == "< return >" {
 				continue
 			}
-			listEC2InstanceByRegion(strings.Split(subAction, " / ")[0])
+			listEC2InstanceByRegion(strings.Split(region, " / ")[0])
 			break
 
 		case "✅   EC2 - create instance(s)":
@@ -311,7 +295,6 @@ func main() {
 			if selectedRegion == "< return >" {
 				continue
 			}
-
 			region := strings.Split(selectedRegion, " / ")[0]
 
 			keyPair, err := selectKeyPair(region)
@@ -331,19 +314,20 @@ func main() {
 			checkErr(err)
 
 			securityGroupID := awsutils.GetSecurityGroupID(region)
-
 			AmazonImageID := awsutils.GetAmazonImageID(region)
 
-			fmt.Printf("\nSetting up %d new instance(s) with params:\n\tregion: %v\n\tTag: Name=\"%v\"\n\tKeyPair: %v\n\tSG-ID: %v\n\tAMI-ID: %v \n\n", count, region, nameTag, keyPair, securityGroupID, AmazonImageID)
+			fmt.Printf("\nSetting up %d new instance(s) with params:\n\tregion: %v\n\tTag: Name=\"%v\"\n\tKeyPair: %v\n\tSG-ID: %v\n\tAMI-ID: %v \n\n",
+				count, region, nameTag, keyPair, securityGroupID, AmazonImageID)
 
 			for i := 0; i < int(count); i++ {
-				wg.Add(1)                                                                     // Step 2
-				go createAndTagInst(region, keyPair, nameTag, securityGroupID, AmazonImageID) // *
+				wg.Add(1)
+				go createAndTagInst(region, keyPair, nameTag, securityGroupID, AmazonImageID)
 			}
-			wg.Wait() // Step 4
+			wg.Wait()
 			break
 
 		case "💻   EC2 - ssh login":
+
 			selectedRegion, err := promptUserMultiOption("Please select region for Login", regions)
 			checkErr(err)
 			if selectedRegion == "< return >" {
@@ -355,18 +339,15 @@ func main() {
 				fmt.Println("Please generate a new keypair for this region before proceeding!")
 				continue
 			}
-
 			if keyPair == "< return >" {
 				continue
 			}
 
-			ipAddress := selectIPorID(region, "IP")
+			ipAddress := selectEC2InstanceWithStates(region, "IP", "running")
 			if ipAddress == "" {
 				fmt.Printf("\n✗ You don't have any IP addresses active in this region!\n\n")
 				continue
-			}
-
-			if ipAddress == "< return >" {
+			} else if ipAddress == "< return >" {
 				continue
 			}
 
@@ -374,18 +355,19 @@ func main() {
 			checkErr(err)
 
 			waitAndSee(fmt.Sprintf("***********************************************\nOpening SSH to IP: [%s] with keypair: [%s].", ipAddress, keyPair), 47)
-			awssh.OpenSession(username, ipAddress, keyPair+".pem")
+			awsutils.OpenSession(username, ipAddress, keyPair+".pem")
 			fmt.Println()
 			break
 
 		case "🛠    EC2 - instance maintenance":
+
 			selectedRegion, err := promptUserMultiOption("Please select region", regions)
 			checkErr(err)
 			if selectedRegion == "< return >" {
 				continue
 			}
 			region := strings.Split(selectedRegion, " / ")[0]
-			temp := selectIPorID(region, "ID")
+			temp := selectEC2InstanceWithStates(region, "ID", "running", "stopped", "stopping", "pending")
 			if temp == "" {
 				fmt.Printf("\nNo instance found in '%s' region!\n\n", region)
 				continue
@@ -399,13 +381,13 @@ func main() {
 				continue
 			}
 			switch selectedAction {
-			case " ▲ start instance":
+			case "▶️  start instance":
 				err = awsutils.StartInstance(region, instanceID)
 				break
-			case " ▼ stop instance":
+			case "⏸  stop instance":
 				err = awsutils.StopInstance(region, instanceID)
 				break
-			case " ☠ terminate instance":
+			case "⏹  terminate instance":
 				err = awsutils.TerminateInstanceByID(region, instanceID)
 				break
 			}
@@ -415,6 +397,7 @@ func main() {
 			break
 
 		case "❌   Exit program":
+
 			fmt.Println("\nIt's sad to see you go... 😢")
 			os.Exit(0)
 			break
@@ -426,20 +409,17 @@ func main() {
 			if selectedRegion == "< return >" {
 				continue
 			}
-
 			region := strings.Split(selectedRegion, " / ")[0]
-			temp := selectIPorID(region, "ID")
-			if temp == "" {
+
+			instance := selectEC2InstanceWithStates(region, "ID", "running", "stopped")
+			if instance == "" {
 				fmt.Println("No instance found")
 				continue
-			}
-
-			if temp == "< return >" {
+			} else if instance == "< return >" {
 				continue
 			}
 
-			instanceID := strings.Split(temp, " | ")[1]
-
+			instanceID := strings.Split(instance, " | ")[1]
 			data := awsutils.GetCloudWatchMetrics(region, instanceID)
 			if data == nil || len(data[0].Values) == 0 {
 				fmt.Printf("\nNo data found in CloudWatch!\n")
