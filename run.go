@@ -13,28 +13,24 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/florianakos/awssh"
 	"github.com/florianakos/awshelper"
+	"github.com/florianakos/awssh"
 	"github.com/manifoldco/promptui"
 )
 
 var menuItems = []string{
-	"\U0001F30D   EC2 - list all",
-	"\U0001F5FA    EC2 - list by region",
-	"\U0001F5FA    EC2 - create instance(s)",
-	"\U0001F440   EC2 - ssh login",
-	"✅   EC2 - select instance",
-	" \U000025B2   EC2 - start instance",
-	" \U000025BC   EC2 - stop instance",
-	" \U00002620   EC2 - terminate instance",
-	"\U0001F30D   CW - get instance metrics",
-	" ⁜   Exit program",
+	"🌍   EC2 - list instances by region",
+	"✅   EC2 - create instance(s)",
+	"💻   EC2 - ssh login",
+	"🛠    EC2 - instance maintenance",
+	"📊   CW - get instance metrics",
+	"❌   Exit program",
 }
 
 var ec2Actions = []string{
-	" ▲ start instance",
-	" ▼ stop instance",
-	" ☠ terminate instance",
+	"▶️ start instance",
+	"⏸ stop instance",
+	"⏹ terminate instance",
 	"< return >",
 }
 
@@ -48,24 +44,19 @@ var regions = []string{
 	"< return >",
 }
 
+// Tags struct for holding Tagging information
 type Tags struct {
 	Key   string
 	Value string
 }
 
-// ASYNC STUFF
-// Step 1 - MUST BE GLOBAL VARIABLE AVAILABLE TO ALL GOROUTINES
+// wg helps with parallel starting of EC2 instances
 var wg sync.WaitGroup
-
-// Duration is something
-type Duration int64
 
 func createAndTagInst(region string, keyPair string, nameTag string, sgID string, amiID string) {
 	defer wg.Done() // Step 3
-	//time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 
 	newInstanceID, err := awshelper.CreateInstance(region, keyPair, sgID, amiID)
-	//time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -79,8 +70,6 @@ func createAndTagInst(region string, keyPair string, nameTag string, sgID string
 
 	fmt.Printf("Instance launched (ID: %s) and tagged (Name=\"%s\").\n\n", newInstanceID, nameTag)
 }
-
-// END OF ASYNC STUFF
 
 func waitAndSee(text string, waitTime int) {
 	fmt.Println(text)
@@ -103,9 +92,8 @@ func selectKeyPair(region string) (string, error) {
 			return "Could not select key", err
 		}
 		return selectedKey, nil
-	} else {
-		return "", errors.New("No keypair found")
 	}
+	return "", errors.New("no keypair found")
 }
 
 // Function to abstract away the basic functionality of showing a prompt with optons to selectfrom
@@ -128,7 +116,7 @@ func convert(num string, err error) (int64, error) {
 	return val, err
 }
 
-func promptUserNumber() (int64, error) {
+func promptForNumber() (int64, error) {
 	validate := func(input string) error {
 		_, err := strconv.ParseInt(input, 10, 64)
 		if err != nil {
@@ -137,7 +125,7 @@ func promptUserNumber() (int64, error) {
 		return nil
 	}
 	prompt := promptui.Prompt{
-		Label:    "Enter number of instances to create: ",
+		Label:    "Number of instances you need: ",
 		Validate: validate,
 		Default:  "1",
 	}
@@ -162,7 +150,7 @@ func promptUserString() (string, error) {
 func promptForUsername() (string, error) {
 	validate := func(input string) error {
 		if len(input) < 1 {
-			return errors.New("Username cannot be empty!")
+			return errors.New("username cannot be empty")
 		}
 		return nil
 	}
@@ -174,98 +162,22 @@ func promptForUsername() (string, error) {
 	return prompt.Run()
 }
 
-// basic error checking functionality abstracted away into this function to compress code
-func checkErr(err error) {
-	if err != nil {
-		fmt.Printf("Subprompt failed %v\n", err)
-		os.Exit(1)
-	}
-}
-
-// print a welcome message upon starting of the code
-func printWelcome() {
-	fmt.Printf("************************************************************\n")
-	fmt.Printf("*                                                          *\n")
-	fmt.Printf("*    Welome to the AWS-GO-Orchestrator™ by: [flrnks] ©     *\n")
-	fmt.Printf("*    -------------------------------------------------     *\n")
-	fmt.Printf("*                                                          *\n")
-	fmt.Printf("*    This is a simple Command-Line Interface in Golang     *\n")
-	fmt.Printf("*    and you can interact with it to manage your EC2 &     *\n")
-	fmt.Printf("*    other kind of resource(s) in the Amazon AWS Cloud     *\n")
-	fmt.Printf("*                                                          *\n")
-	fmt.Printf("************************************************************\n")
-}
-
-func listAllEC2Instances() {
-  mainSession, err := session.NewSessionWithOptions(session.Options{ Profile: "personal-aws",})
-	checkErr(err)
-	fmt.Printf("\n_____________________________________________________________________________________________________________\n")
-	fmt.Println("\n    IP_address\t\tStatus\t\tRegion\t\tInstanceID\t\tTags\t\t InstanceType")
-
-	counter := 0
-	for _, val := range regions {
-		currentRegion := strings.Split(val, " / ")[0]
-		if currentRegion != "< return >" {
-			svc := ec2.New(mainSession.Copy(&aws.Config{Region: aws.String(currentRegion)}))
-			input := &ec2.DescribeInstancesInput{
-				Filters: []*ec2.Filter{{
-						Name: aws.String("instance-type"),
-						Values: []*string{
-								aws.String("t2.micro"),
-						},
-					},
-				},
-			}
-			res, _ := svc.DescribeInstances(input)
-			result := res.Reservations
-			if len(result) != 0 {
-
-				for i := 0; i < len(result); i++ {
-					instance := *result[i].Instances[0]
-					tagKey := "    "
-					tagValue := "    "
-					if instance.Tags != nil {
-						tagKey = *instance.Tags[0].Key
-						tagValue = "=" + *instance.Tags[0].Value
-					}
-					if *instance.State.Name == "running" {
-						if len(*instance.PublicIpAddress) < 12 {
-							counter++
-							fmt.Printf("✔   %v\t\t%v\t\t%v\t%v\t%v%v\t %v\n", *instance.PublicIpAddress, *instance.State.Name, currentRegion, *instance.InstanceId, tagKey, tagValue, *instance.InstanceType)
-						} else {
-							counter++
-							fmt.Printf("✔   %v\t%v\t\t%v\t%v\t%v%v\t %v\n", *instance.PublicIpAddress, *instance.State.Name, currentRegion, *instance.InstanceId, tagKey, tagValue, *instance.InstanceType)
-						}
-					} else if *instance.State.Name == "shutting-down" || *instance.State.Name == "stopping" || *instance.State.Name == "terminated" {
-						fmt.Printf("✗   NO_IP_ADDR\t\t%v\t%v\t%v\t%v%v\t %v\n", *instance.State.Name, currentRegion, *instance.InstanceId, tagKey, tagValue, *instance.InstanceType)
-					} else if *instance.State.Name == "pending" || *instance.State.Name == "rebooting" || *instance.State.Name == "stopped" {
-						fmt.Printf("✗   NO_IP_ADDR\t\t%v\t\t%v\t%v\t%v%v\t %v\n", *instance.State.Name, currentRegion, *instance.InstanceId, tagKey, tagValue, *instance.InstanceType)
-					}
-				}
-
-			}
-		}
-	}
-	fmt.Println("______________________________________________________________________________________________________________")
-	fmt.Printf("\n>>> You have [ %d ] instances in total!\n\n", counter)
-}
-
 func listEC2InstanceByRegion(region string) {
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Profile: "personal-aws",
-		Config: aws.Config{ Region: aws.String(region)},
+		Config:  aws.Config{Region: aws.String(region)},
 	})
 	checkErr(err)
 	svc := ec2.New(sess)
 
 	input := &ec2.DescribeInstancesInput{
 		Filters: []*ec2.Filter{{
-				Name: aws.String("instance-state-name"),
-				Values: []*string{
-					aws.String("running"),
-					aws.String("pending"),
-				},
+			Name: aws.String("instance-state-name"),
+			Values: []*string{
+				aws.String("running"),
+				aws.String("pending"),
 			},
+		},
 		},
 	}
 
@@ -301,7 +213,7 @@ func listEC2InstanceByRegion(region string) {
 		fmt.Println("______________________________________________________________________________________________________________")
 		fmt.Printf("\n>>> You have [ %d ] usable instances in %s!\n\n", counter, region)
 
-	} // enf-if
+	}
 }
 
 func selectIPorID(region string, which string) string {
@@ -316,24 +228,17 @@ func selectIPorID(region string, which string) string {
 
 	input := &ec2.DescribeInstancesInput{
 		Filters: []*ec2.Filter{{
-				Name: aws.String("instance-state-name"),
-				Values: []*string{
-					aws.String("running"),
-					aws.String("pending"),
-				},
-			},
-		},
+			Name:   aws.String("instance-state-name"),
+			Values: []*string{aws.String("running"), aws.String("stopped"), aws.String("pending")},
+		}},
 	}
 
 	res, err := svc.DescribeInstances(input)
 	result := res.Reservations
-
 	items := make([]string, 0)
-	if len(result) == 0 {
-		return ""
-	} else {
+
+	if len(result) != 0 {
 		for i := 0; i < len(result); i++ {
-			//instanceArray := result[i].Instances
 			instance := *result[i].Instances[0]
 
 			if which == "IP" && *instance.State.Name == "running" {
@@ -344,37 +249,52 @@ func selectIPorID(region string, which string) string {
 				} else {
 					items = append(items, "* NO-IP-ADDR *"+" | "+*instance.InstanceId)
 				}
-			} // end-if
-		} // end-for
-	} // enf-if
-
-	if len(items) == 0 {
-		return ""
-	} else {
-		items = append(items, "< return >")
-		selectedInstance, _ := promptUserMultiOption("Please select an instance!", items)
-		return selectedInstance
+			}
+		}
+		if len(items) != 0 {
+			items = append(items, "< return >")
+			selectedInstance, _ := promptUserMultiOption("Please select an instance!", items)
+			return selectedInstance
+		}
 	}
+	return ""
+}
 
+// basic error checking functionality abstracted away into this function to compress code
+func checkErr(err error) {
+	if err != nil {
+		fmt.Printf("Subprompt failed %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// print a welcome message upon starting of the code
+func printWelcome() {
+	fmt.Printf("************************************************************\n")
+	fmt.Printf("*                                                          *\n")
+	fmt.Printf("*    Welome to the AWS-GO-Orchestrator™ by: [flrnks] ©     *\n")
+	fmt.Printf("*    -------------------------------------------------     *\n")
+	fmt.Printf("*                                                          *\n")
+	fmt.Printf("*    This is a simple Command-Line Interface in Golang     *\n")
+	fmt.Printf("*    and you can interact with it to manage your EC2 &     *\n")
+	fmt.Printf("*    other kind of resource(s) in the Amazon AWS Cloud     *\n")
+	fmt.Printf("*                                                          *\n")
+	fmt.Printf("************************************************************\n")
 }
 
 func main() {
 
 	printWelcome()
+
 	rand.Seed(42)
 
 	// basic infinite loop to execute the prompt over and over until Exit is called...
 	for {
-		whatToDo, err := promptUserMultiOption("Please select the action below", menuItems)
+		action, err := promptUserMultiOption("Select an action", menuItems)
 		checkErr(err)
-		switch whatToDo {
+		switch action {
 
-		case "🌍   EC2 - list all":
-			listAllEC2Instances()
-			fmt.Println()
-			break
-
-		case "🗺    EC2 - list by region":
+		case "🌍   EC2 - list instances by region":
 
 			subAction, err := promptUserMultiOption("Please select a region first", regions)
 			checkErr(err)
@@ -384,7 +304,7 @@ func main() {
 			listEC2InstanceByRegion(strings.Split(subAction, " / ")[0])
 			break
 
-		case "🗺    EC2 - create instance(s)":
+		case "✅   EC2 - create instance(s)":
 
 			selectedRegion, err := promptUserMultiOption("Please select region where you want to create an instance", regions)
 			checkErr(err)
@@ -404,7 +324,7 @@ func main() {
 				continue
 			}
 
-			count, err := promptUserNumber()
+			count, err := promptForNumber()
 			checkErr(err)
 
 			nameTag, err := promptUserString()
@@ -423,7 +343,7 @@ func main() {
 			wg.Wait() // Step 4
 			break
 
-		case "👀   EC2 - ssh login":
+		case "💻   EC2 - ssh login":
 			selectedRegion, err := promptUserMultiOption("Please select region for Login", regions)
 			checkErr(err)
 			if selectedRegion == "< return >" {
@@ -458,51 +378,7 @@ func main() {
 			fmt.Println()
 			break
 
-		case " ☠   EC2 - terminate instance":
-			selectedRegion, err := promptUserMultiOption("Please select a region", regions)
-			checkErr(err)
-			if selectedRegion == "< return >" {
-				continue
-			}
-			region := strings.Split(selectedRegion, " / ")[0]
-			temp := selectIPorID(region, "ID")
-			if temp == "" {
-				fmt.Println("No instance found")
-				continue
-			}
-			if temp == "< return >" {
-				continue
-			}
-			instanceID := strings.Split(temp, " | ")[1]
-			err = awshelper.TerminateInstanceByID(region, instanceID)
-			if err != nil {
-				fmt.Println(err)
-			}
-			break
-
-		case " ▼   EC2 - stop instance":
-			selectedRegion, err := promptUserMultiOption("Please select a region", regions)
-			checkErr(err)
-			if selectedRegion == "< return >" {
-				continue
-			}
-			region := strings.Split(selectedRegion, " / ")[0]
-			temp := selectIPorID(region, "ID")
-			if temp == "" {
-				fmt.Println("No instance found")
-				continue
-			}
-			if temp == "< return >" {
-				continue
-			}
-			instanceID := strings.Split(temp, " | ")[1]
-			err = awshelper.StopInstance(region, instanceID)
-			if err != nil {
-				fmt.Println(err)
-			}
-			break
-
-		case " ▲   EC2 - start instance":
+		case "🛠    EC2 - instance maintenance":
 			selectedRegion, err := promptUserMultiOption("Please select region", regions)
 			checkErr(err)
 			if selectedRegion == "< return >" {
@@ -511,29 +387,7 @@ func main() {
 			region := strings.Split(selectedRegion, " / ")[0]
 			temp := selectIPorID(region, "ID")
 			if temp == "" {
-				fmt.Println("No instance found")
-				continue
-			}
-			if temp == "< return >" {
-				continue
-			}
-			instanceID := strings.Split(temp, " | ")[1]
-			err = awshelper.StartInstance(region, instanceID)
-			if err != nil {
-				fmt.Println(err)
-			}
-			break
-
-		case "✅   EC2 - select instance":
-			selectedRegion, err := promptUserMultiOption("Please select region", regions)
-			checkErr(err)
-			if selectedRegion == "< return >" {
-				continue
-			}
-			region := strings.Split(selectedRegion, " / ")[0]
-			temp := selectIPorID(region, "ID")
-			if temp == "" {
-				fmt.Println("No instance found")
+				fmt.Printf("\nNo instance found in '%s' region!\n\n", region)
 				continue
 			} else if temp == "< return >" {
 				continue
@@ -545,27 +399,27 @@ func main() {
 				continue
 			}
 			switch selectedAction {
-				case " ▲ start instance":
-					err = awshelper.StartInstance(region, instanceID)
-					break
-				case " ▼ stop instance":
-					err = awshelper.StopInstance(region, instanceID)
-					break
-				case " ☠ terminate instance":
-					err = awshelper.TerminateInstanceByID(region, instanceID)
-					break
+			case " ▲ start instance":
+				err = awshelper.StartInstance(region, instanceID)
+				break
+			case " ▼ stop instance":
+				err = awshelper.StopInstance(region, instanceID)
+				break
+			case " ☠ terminate instance":
+				err = awshelper.TerminateInstanceByID(region, instanceID)
+				break
 			}
 			if err != nil {
 				fmt.Println(err)
 			}
 			break
 
-		case " ⁜   Exit program":
-			fmt.Println("\nIt's sad to see you go... \U0001F622\n")
+		case "❌   Exit program":
+			fmt.Println("\nIt's sad to see you go... 😢\n")
 			os.Exit(0)
 			break
 
-		case "🌍   CW - get instance metrics":
+		case "📊   CW - get instance metrics":
 
 			selectedRegion, err := promptUserMultiOption("Please select a region", regions)
 			checkErr(err)
@@ -594,6 +448,6 @@ func main() {
 				awshelper.PlotGraph(region, instanceID, data)
 			}
 			break
-		} // end-switch
-	} // end-for
-} // end-main
+		}
+	}
+}
